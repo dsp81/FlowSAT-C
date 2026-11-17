@@ -9,9 +9,13 @@ This repository holds the code for the released checkpoint (training step 35,000
 script, the fMoW and RSICD image-quality evaluation, and the MetaCF controllability evaluation. Each result below
 has its own step-by-step guide.
 
-The paper is under review. The weights, our captions, the data manifests and the generated evaluation images are on
-Hugging Face: **[Djisgod/flowsat-c-35k](https://huggingface.co/Djisgod/flowsat-c-35k)** (gated, see
-[Access and permissions](#access-and-permissions)).
+The paper is under review. Released files on Hugging Face:
+
+- **Data (public): [Djisgod/flowsat-c-data](https://huggingface.co/datasets/Djisgod/flowsat-c-data)**: our captions
+  (fMoW test, RSICD), the fMoW manifests (captions + metadata for every training and test image), and the 9,614
+  generated fMoW test images with the scoring script.
+- **Model weights (gated): [Djisgod/flowsat-c-35k](https://huggingface.co/Djisgod/flowsat-c-35k)**: the step-35k
+  checkpoint (it also contains a copy of the data above). See [Access and permissions](#access-and-permissions).
 
 ## Results of the 35k checkpoint
 
@@ -98,7 +102,8 @@ FlowSAT-C/
 
 | what | where | permission needed |
 |---|---|---|
-| FlowSAT-C weights, captions, manifests, generated images | [Djisgod/flowsat-c-35k](https://huggingface.co/Djisgod/flowsat-c-35k) | **Yes.** The repository is gated: open the page, fill in the form, and wait for manual approval. Then create a Hugging Face access token (read) and run `huggingface-cli login`. |
+| Captions, manifests, generated fMoW images, scorer | [Djisgod/flowsat-c-data](https://huggingface.co/datasets/Djisgod/flowsat-c-data) (dataset) | None (public). |
+| FlowSAT-C weights | [Djisgod/flowsat-c-35k](https://huggingface.co/Djisgod/flowsat-c-35k) | **Yes.** The repository is gated: open the page, fill in the form, and wait for manual approval. Then create a Hugging Face access token (read) and run `huggingface-cli login`. |
 | FLUX.2-klein-base-4B (backbone, VAE, text encoder) | [black-forest-labs/FLUX.2-klein-base-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4B) | A Hugging Face account. If the model page asks you to accept its licence, accept it before downloading. Use the **`-base`** model; the distilled `FLUX.2-klein-4B` does not work with this code. |
 | fMoW-RGB (training, MetaCF) and fMoW-full test (fMoW scoring) | public AWS bucket `s3://spacenet-dataset/Hosted-Datasets/fmow/` | None: no AWS account needed (`--no-sign-request`). Install the AWS CLI. |
 | RSICD | [arampacha/rsicd](https://huggingface.co/datasets/arampacha/rsicd) | None (public). |
@@ -136,6 +141,10 @@ huggingface-cli download black-forest-labs/FLUX.2-klein-base-4B --local-dir weig
 ln -s ../hf/flowsat_c_35k.safetensors weights/flowsat_c_35k.safetensors
 ln -s ../hf/p1pb_config.json weights/p1pb_config.json
 ```
+
+Without access to the weights you can still get every data file (captions, manifests, generated images) from the
+public dataset, into the same folder:
+`huggingface-cli download Djisgod/flowsat-c-data --repo-type dataset --local-dir hf`.
 
 `hf/` then holds `flowsat_c_35k.safetensors` (8.4 GB), `p1pb_config.json`, `captions/` (our fMoW test and RSICD
 captions), `manifests/` (metadata + our captions for every fMoW-RGB image used) and `eval/`. Leave out the
@@ -189,8 +198,9 @@ GPUS=0,1 bash launch/train_main.sh       # phase 2: from runs/warmup/ckpt-15000,
 
 ## Guide 2: fMoW test numbers (FID 11.06)
 
-**Shortcut (no GPU needed for generation):** the generated images are in the Hugging Face repo. The
-[Hugging Face README](https://huggingface.co/Djisgod/flowsat-c-35k) re-scores them in four commands and reproduces
+**Shortcut (no GPU needed for generation, no access request):** the generated images are in the public dataset
+[Djisgod/flowsat-c-data](https://huggingface.co/datasets/Djisgod/flowsat-c-data). Its
+[README](https://huggingface.co/datasets/Djisgod/flowsat-c-data) re-scores them in four commands and reproduces
 the table (our re-run: FID 11.0616).
 
 To regenerate the images yourself:
