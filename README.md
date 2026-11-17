@@ -191,7 +191,7 @@ GPUS=0,1 bash launch/train_main.sh       # phase 2: from runs/warmup/ckpt-15000,
 
 **Shortcut (no GPU needed for generation):** the generated images are in the Hugging Face repo. The
 [Hugging Face README](https://huggingface.co/Djisgod/flowsat-c-35k) re-scores them in four commands and reproduces
-the table exactly.
+the table (our re-run: FID 11.0616).
 
 To regenerate the images yourself:
 
@@ -229,7 +229,8 @@ GPU=0 bash launch/score_fmow.sh          # -> runs/eval_fmow/metrics_fmow.json
 **4. Compare** `final` in `runs/eval_fmow/metrics_fmow.json` with `eval_data/fmow_expected_metrics.json`: FID 11.06
 (matched ids 11.21), CLIP 30.17 (real 30.00), SSIM 0.170, LPIPS 0.596, IS 6.65, 9,999 real and 9,613 generated
 images, `protocol.reference_set` = `6b2615222b9f`. Regenerated images can differ from ours by GPU nondeterminism in
-bf16, so expect small differences in the last digits; scoring the released images gives the table exactly.
+bf16, so expect small differences in the last digits; scoring the released images gives the table to the
+reported precision (the Inception Score varies slightly between runs: torchmetrics shuffles the images).
 
 Protocol: each GeoTIFF gets a 2-98 percentile stretch per band, a centre square crop and a bilinear resize to
 512 px; FID uses Inception features (2048-d, torchmetrics 1.5.2); CLIP score uses `openai/clip-vit-base-patch16`
