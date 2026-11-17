@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+/runs/
+/flowsat_C/runs/
+/weights/
+/hf/
+/data/
+/manifests/
+/venv*/
+*.safetensors
+*.pt

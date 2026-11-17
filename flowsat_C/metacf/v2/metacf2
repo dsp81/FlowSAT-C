@@ -1,0 +1,4 @@
+#!/bin/bash
+# metacf2 <build-pairs|select-spaces|fit-readers|plan|generate|score|meta|card|pipeline> --config <yaml> [...]
+# Run from flowsat_C/ with the env of runs/eval/metacf_v2_35k/env.sh (or any env that imports metacf + flowsat_C).
+exec "${PYTHON:-python}" -m metacf.v2 "$@"

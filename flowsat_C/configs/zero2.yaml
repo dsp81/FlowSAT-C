@@ -1,0 +1,13 @@
+compute_environment: LOCAL_MACHINE
+distributed_type: DEEPSPEED
+mixed_precision: bf16
+# 2 GPUs: grad_accum = global_batch / (per_gpu_batch * num_processes) = 64 / (8*2) = 4.
+# Keep num_processes and gradient_accumulation_steps in sync; train.py refuses a mismatch.
+num_processes: 2
+deepspeed_config:
+  zero_stage: 2
+  offload_optimizer_device: none
+  offload_param_device: none
+  gradient_accumulation_steps: 4
+  gradient_clipping: 1.0
+  zero3_init_flag: false

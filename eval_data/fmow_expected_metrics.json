@@ -1,0 +1,14 @@
+{
+  "fid": 11.0594,
+  "fid_matched": 11.2135,
+  "clip_score": 30.1661,
+  "clip_real": 29.9963,
+  "ssim": 0.17004,
+  "lpips": 0.59585,
+  "is_mean": 6.6471,
+  "is_std": 0.1841,
+  "n_real": 9999,
+  "n_generated": 9613,
+  "n_unreadable_reals": 1,
+  "reference_set_sha256_12": "6b2615222b9f"
+}

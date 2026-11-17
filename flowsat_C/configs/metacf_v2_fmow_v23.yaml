@@ -1,0 +1,176 @@
+# MetaCF v2 on fMoW, FlowSAT-C stage 2 @ 35k. One file = one frozen run: sha256 of the canonical JSON
+# (sorted keys) names <output.root>/<model.name>/<hash>/; the protocol hash (everything except model / plan /
+# meta / output / runtime) names <output.root>/_protocol/<hash>/ (real-data artifacts shared across models).
+# Every value is the spec default unless its comment says otherwise. Paths are relative to flowsat_C/.
+
+seed: 0                                   # base seed; every random choice = seed_of(seed, label, ...)
+
+output:
+  root: runs/eval/metacf_v2_35k/results_v2   # relative to flowsat_C/ (runs/ is git-ignored)
+
+data:
+  train_manifest: ../manifests/train_cov.jsonl             # TRAIN: selection, readers, normalisers
+  test_manifest: ../manifests/test_cov.jsonl               # TEST: scoring only
+  resolution: 512                         # centre crop to the short side, bilinear resize (training transform)
+  jpeg_draft: true                        # JPEG draft decode at >= 1024 px first: ~4x faster, mean |diff| 0.4/255 (Q32)
+  train_limit: null
+  test_limit: null
+
+# ---------------------------------------------------------------- fields (spec 1.2)
+# tag picks the regression transform: gsd -> log g', doy -> (cos, sin), sun_elev -> sin e,
+# sun_azim -> (cos, sin), cloud -> fraction, year -> year, sensor -> one-hot (ref = most frequent TRAIN).
+# location: true = constant within a site, never a regressor (geo, covariates). group = the model's
+# field group (null masks, C0 groups). Names match metacf.adapters.flowsat_c.GROUP_OF.
+fields:
+  latlon:     {type: geo, keys: [lat_deg, lon_deg], group: geo, location: true}
+  gsd:        {type: continuous, keys: [gsd_eff_m], tag: gsd, group: gsd}           # EFFECTIVE gsd
+  doy:        {type: circular, keys: [doy], period: 365.25, tag: doy, group: doy}
+  sun_elev:   {type: continuous, keys: [sun_elev_deg], tag: sun_elev, group: solar}
+  sun_azim:   {type: circular, keys: [sun_azimuth_deg], period: 360, tag: sun_azim, group: solar, enabled: false}  # spec: only if enabled
+  cloud:      {type: continuous, keys: [cloud_frac], tag: cloud, group: cloud}      # "scene acquisition quality"
+  year:       {type: continuous, keys: [year], tag: year, group: year}
+  sensor:     {type: categorical, keys: [platform], tag: sensor, group: sensor}
+  elevation:  {type: continuous, keys: [cov.elevation_m], group: cov, location: true}
+  relief:     {type: continuous, keys: [cov.relief_m], transform: log1p, group: cov, location: true}
+  coast:      {type: continuous, keys: [cov.coast_km], transform: log1p, group: cov, location: true}
+  population: {type: continuous, keys: [cov.pop_density], transform: log1p, group: cov, location: true}
+  koppen:     {type: categorical, keys: [cov.koppen], group: cov, location: true}
+  landcover:  {type: categorical, keys: [cov.landcover_mode], group: cov, location: true}
+
+# ---------------------------------------------------------------- feature spaces (spec 1.1)
+spaces:
+  dino:  {kind: dinov2, model_id: facebook/dinov2-base, device: cuda, batch: 64}   # spec: DINOv2-L; L is not cached and downloads are forbidden (Q1)
+  clip:  {kind: clip, model_id: openai/clip-vit-large-patch14-336, device: cuda, batch: 64}
+  stats: {kind: stats, threads: 3}        # hand-written vector, z-scored with TRAIN means / stds (3 threads: fair use)
+default_space: dino                       # C0 / C3 / C5 / E4 default and the fallback for fields without a selection
+caption_encoder: {kind: clip_text, model_id: openai/clip-vit-large-patch14-336, device: cuda}   # C3 caption embedding
+stats_norm:
+  n_max: 20000                            # TRAIN tiles used for the stats z-score (the TRAIN pair images, subsampled)
+
+# ---------------------------------------------------------------- pairs, regression, selection (1.3-1.5)
+pairs:
+  cap: 10                                 # max pairs per location (seeded)
+  vif_max: 5.0                            # fields with a column VIF > 5 (vs other fields) are merged into one joint field
+  max_sites_train: 4000                   # Q6: bounds TRAIN feature extraction (64k sites have >= 2 views); null = all
+  max_sites_test: null                    # every TEST site with >= 2 views (~9.4k)
+selection:
+  n_splits: 50                            # split-half reliability: 50 random halvings of the SITES
+  ci_splits: 10                           # Q7: halvings per bootstrap replicate for the reliability CI
+  min_reliability: 0.5                    # VALID if reliability >= 0.5 and CI excludes 0
+bootstrap:
+  B: 1000                                 # percentile CIs; every bootstrap resamples SITES (location_id)
+stats:
+  bh_q: 0.05                              # Benjamini-Hochberg over every hypothesis test in one run
+support:
+  lo_pct: 1                               # in support = inside the category's TRAIN [1st, 99th] percentile range
+  hi_pct: 99
+  min_cat: 50                             # categories with fewer records use the global range
+shared:
+  n_test: 2000                            # TEST records shared by C2 / C3 / C4 (stratified category x region)
+summary:
+  exclude_groups: [cov]                   # MetaCF excludes the covariate group (reported only)
+
+# ---------------------------------------------------------------- measures (spec section 2)
+measures:
+  C0: {enabled: true, n_anchors: 20, n_seeds: 3, percentiles: [5, 95], circular_shift_days: 182.0,
+       geo_min_km: 3000, ratio_min: 0.1, thresholds: [0.05, 0.1, 0.2], min_anchors: 5}
+  C1: {enabled: true, n_pairs: 400, consistent_doy: true, n_splits: 50, ci_splits: 10}
+  C2: {enabled: true, n_anchors: 200, n_values: 5, n_real_train: 1000, n_perm: 5, min_count: 5}
+  C3: {enabled: true, n_train: 5000}
+  C4: {enabled: true, n_quantile_bins: 5, n_arcs: 4, min_class: 100}
+  C5:
+    enabled: true
+    n_records: 1000                       # x 3 channels (full / metadata-only / caption-only)
+    index_n: null                         # null = every TRAIN real tile (354k); exact search (no FAISS installed)
+    n_test_real: 1000
+    flag: {own: 0.05, location: 0.05, copy: 0.05}   # flag when rate - baseline exceeds these
+  E1: {enabled: true, n_anchors: 50, n_values: 5, n_real: 5000}
+  E2:
+    enabled: true
+    lat_key: lat_deg
+    landcover_key: cov.landcover_mode
+    koppen_key: cov.koppen
+    min_abs_lat: 20
+    vegetated: [1, 4, 6]                  # forest, grass, crop (fMoW land cover; as v1 T14)
+    n_phase: 20                           # per hemisphere
+    n_biome: 40                           # 20 HIGH + 20 LOW
+    high_landcover: [4, 6]                # grass, crop (+ forest outside tropical Koppen A)   Q17, MODIFIED
+    low_landcover: [9, 7]                 # barren, urban (+ forest inside Koppen Af)
+    forest_code: 1
+    tropical_koppen: [0, 1, 2]            # Af, Am, Aw (stored index = class - 1)
+    rainforest_koppen: [0]
+    min_dates: 4                          # real sequences: >= 4 dates spanning >= 6 months
+    min_span_days: 182.6
+    min_south_sequences: 10               # else cross-sectional monthly bins (FALLBACK)
+    min_biome_sequences: 10
+    tol_days: 45                          # gate |delta_real - 182.6| <= 45
+    max_R_real: 0.5                       # gate R_real < 0.5
+  E3: {enabled: true, n_anchors: 50, n_values: 5, n_real: 5000, n_shadow_real: 1000}
+  E4: {enabled: true, n_anchors: 50, n_years: 4, min_acc_real: 0.6}     # space: default_space (DINOv2)
+
+# ---------------------------------------------------------------- model
+model:
+  adapter: flowsat_c
+  name: flowsat-c-stage2-35k
+  model_id: ../weights/FLUX.2-klein-base-4B
+  checkpoint: ../weights/flowsat_c_35k.safetensors
+  steps: 20
+  w_txt: 2.0                              # the operating point (ctrl suite 2: w_md 1.5-2, w_txt 1.5-2.5)
+  w_md: 2.0
+  resolution: 512
+  batch: 8                                # requests with the same null mask are sampled together
+  supported_fields: [latlon, gsd, cloud, doy, sun_elev, sun_azim, year, sensor, koppen, landcover,
+                     elevation, relief, coast, population]
+
+plan:
+  seconds_per_image: 3.64                 # measured 6-7 Nov 2026: gen_v1proto, this checkpoint, 20 steps, batch 8, one A100
+
+runtime:                                  # in the config hash (spec: the hash changes with any value)
+  threads: 3                              # fair use: OMP/MKL/torch threads (16-core budget shared with other jobs)
+  load_threads: 3                         # image-decoding threads for feature extraction
+  feature_batch: 64
+  image_cache: 512
+
+# ---------------------------------------------------------------- v2.1 (9 Nov 2026): GSD-as-zoom fixes + C3 floor
+# Scoring extensions only: excluded from the protocol hash (metacf/v2/run.py MODEL_SECTIONS), so the v2 protocol
+# dir (pairs, selection, readers) and every feature store are reused. Applied with `metacf.v2 rescore --from
+# <v2 model dir>` on the existing generations (no new images), except the C3 floor images (PENDING until generated).
+# union of metacf_v2_fmow_v21.yaml (GSD / C3 floor) and metacf_v2_fmow_v21_e3c2.yaml (E4 / E3 / C2), 9 Nov 2026
+v2_1:
+  gsd_reference: zoom          # C1 gsd: B_f = synthetic zoom pairs of real TEST chips (core/zoom.py), not same-site pairs
+  zoom: {n_tiles: 800, ks: [1.25, 1.5, 2.0, 3.0]}   # chips with short side >= k * 512 only: nothing up-sampled
+  e1_zoom: true                # E1 extra rows: zoom direction / zoom slope / blur slope on the E1 generations
+  gsd_row_e1: true             # per-field row of gsd also shows E1 and E1 zoom
+  c3_floor: "null"             # C3 floor (quoted: bare null is YAML None): same model with the field's group nulled (null | shuffle); PENDING until generated
+  drop_e4: true                # E4 year is dataset-dependent (real ordering acc 0.615 vs a 0.6 gate)
+  e3_shadows: true             # E3 shadow_direction / shadow_area (+ _sweep) rows (physics/shadows.py, validated on reals)
+  c2:
+    n_real_train: 12000        # v2 used 1000: under-trained (c2_audit.py: gsd R^2 0.84 -> 0.89, within-category -0.01 -> 0.33)
+    lambdas: extended          # v2 grid edge was hit at n >= 8000
+    min_real: 0.05             # real reader's score CI lower bound must reach this (categorical: chance + 0.05)
+    within_category: true      # report R^2 beyond the category (extras; tau is invariant to it)
+  print_composite: false       # no combined MetaCF number
+
+# ---------------------------------------------------------------- v2.2 (9 Nov 2026): E1 GSD MATCHING
+# Scoring extension, excluded from the protocol hash like v2_1. Shared reader trained on REAL images only
+# (metacf/v2/core/gsd_reader.py; space chosen by the within-scene zoom-ladder check, before generated scoring).
+# E1 matching rows (physics/e1_match.py): GSD sweeps at fixed caption / seed / other fields, read-off vs requested.
+# Needs new generations (the sweep cells): metacf.v2 generate --measures E1, then rescore --measures E1.
+v2_2:
+  gsd_reader: {n_train: 12000, n_test: 3000, spaces: null, min_within_spearman: 0.6, min_within_slope: 0.2}
+  # v2.3: DENSE sweep. The 7 v2.2 levels are kept (their images are reused) and 5 are added so that a typical
+  # category support (~0.47-0.98 m) holds 5 levels (0.52 0.6 0.7 0.8 0.92) and the 1.05 -> 1.6 m gap is split.
+  e1_match: {values: [0.3, 0.45, 0.52, 0.6, 0.7, 0.8, 0.92, 1.05, 1.25, 1.6, 2.4, 3.5], n_anchors: 50, n_seeds: 2, min_levels_in: 4}
+
+# ---------------------------------------------------------------- v2.3 (11 Nov 2026): GSD as zoom everywhere,
+# bounded scores, C4 CI fix (code, always on), group-level C3 floor on a subset, one card without a combined score.
+# Scoring extension, excluded from the protocol hash like v2_1 / v2_2 (pairs, selection, readers reused).
+v2_3:
+  final: "v2.3-final, user-signed 11 Nov 2026 ~05:00: no further test changes; same config for every model"
+  bounded: true                # reported score in [0, 1]; ratio metrics min(k, 1 / k); unbounded value kept
+  e1_in_from_sweep: true       # E1 in-range (PRIMARY) from the dense sweep levels inside the category support
+  c1_zoom: {n_pairs: 200, factor: 2.0}   # C1 gsd: PRIMARY = in-range pairs read with the real-trained reader;
+                               # EXTRAPOLATION rows = a x2 / /2 request vs a real x2 zoom
+  c2_within_scene: true        # C2 gsd: PRIMARY = within-scene, C2 images (in range); EXTRAPOLATION = full-sweep reader
+  c0_gsd_factor: 2.0           # C0 gsd: PRIMARY = TRAIN p5 vs p95 (in range); EXTRAPOLATION row = own vs own x 2
+  c3_floor: {mode: shuffle, n: 500, by_group: true}   # C3 floored is PRIMARY; floor = the group's fields from another record

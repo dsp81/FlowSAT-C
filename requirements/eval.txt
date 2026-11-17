@@ -1,0 +1,17 @@
+# Scoring environment for the fMoW and RSICD numbers (FID, CLIP score, SSIM, LPIPS, IS).
+# Python 3.10, CUDA 12.1 wheels:
+#   pip install -r requirements/eval.txt --extra-index-url https://download.pytorch.org/whl/cu121
+# These pins reproduce the reported numbers exactly; other torchmetrics versions give a different FID on identical images.
+torch==2.4.0
+torchvision==0.19.0
+transformers==4.49.0
+tokenizers==0.21.4
+huggingface_hub==0.29.3
+torchmetrics==1.5.2
+torch-fidelity==0.4.0
+lightning-utilities==0.15.3
+scipy==1.15.3
+numpy==2.2.6
+pillow==12.2.0
+lpips==0.1.4
+rasterio==1.4.4
